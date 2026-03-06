@@ -152,26 +152,32 @@ def tangent_external_both(
     return results
 
 
-def choose_outer_tangent(
+def choose_tangent_by_centroid(
     c1: Tuple[float, float],
     r1: float,
     c2: Tuple[float, float],
     r2: float,
     centroid: Tuple[float, float],
+    prefer_outer: bool,
 ) -> Optional[Tuple[Tuple[float, float], Tuple[float, float]]]:
     candidates = tangent_external_both(c1, r1, c2, r2)
     if not candidates:
         return None
 
     best = None
-    best_score = -1e18
+    best_score = -1e18 if prefer_outer else 1e18
     for p1, p2 in candidates:
         mx = (p1[0] + p2[0]) / 2.0
         my = (p1[1] + p2[1]) / 2.0
         score = math.hypot(mx - centroid[0], my - centroid[1])
-        if score > best_score:
-            best_score = score
-            best = (p1, p2)
+        if prefer_outer:
+            if score > best_score:
+                best_score = score
+                best = (p1, p2)
+        else:
+            if score < best_score:
+                best_score = score
+                best = (p1, p2)
     return best
 
 
@@ -179,12 +185,13 @@ def arc_point(center: Tuple[float, float], radius: float, angle: float) -> Tuple
     return center[0] + radius * math.cos(angle), center[1] + radius * math.sin(angle)
 
 
-def choose_outer_arc(
+def choose_arc_by_centroid(
     center: Tuple[float, float],
     radius: float,
     p_in: Tuple[float, float],
     p_out: Tuple[float, float],
     centroid: Tuple[float, float],
+    prefer_outer: bool,
 ) -> Tuple[float, float, float, Tuple[float, float]]:
     a1 = norm_angle(angle_of(center, p_in))
     a2 = norm_angle(angle_of(center, p_out))
@@ -201,10 +208,16 @@ def choose_outer_arc(
     d_ccw = dist(p_mid_ccw, centroid)
     d_cw = dist(p_mid_cw, centroid)
 
-    if d_ccw >= d_cw:
-        return a1, ccw, radius * ccw, p_mid_ccw
+    if prefer_outer:
+        if d_ccw >= d_cw:
+            return a1, ccw, radius * ccw, p_mid_ccw
+        else:
+            return a1, -cw, radius * cw, p_mid_cw
     else:
-        return a1, -cw, radius * cw, p_mid_cw
+        if d_ccw <= d_cw:
+            return a1, ccw, radius * ccw, p_mid_ccw
+        else:
+            return a1, -cw, radius * cw, p_mid_cw
 
 
 def sensible_order(wheels: List[Wheel]) -> List[int]:
@@ -224,7 +237,7 @@ def sensible_order(wheels: List[Wheel]) -> List[int]:
     return indexed
 
 
-def compute_belt_solution(wheels: List[Wheel]) -> BeltSolution:
+def compute_belt_solution(wheels: List[Wheel], prefer_outer: bool = True) -> BeltSolution:
     if len(wheels) < 2:
         raise ValueError("Mindestens 2 Elemente erforderlich.")
 
@@ -246,10 +259,11 @@ def compute_belt_solution(wheels: List[Wheel]) -> BeltSolution:
         wi = wheels[i]
         wj = wheels[j]
 
-        tang = choose_outer_tangent(
+        tang = choose_tangent_by_centroid(
             (wi.x, wi.y), wi.radius,
             (wj.x, wj.y), wj.radius,
             centroid,
+            prefer_outer,
         )
         if tang is None:
             raise ValueError(
@@ -298,8 +312,8 @@ def compute_belt_solution(wheels: List[Wheel]) -> BeltSolution:
         if p_in is None or p_out is None:
             raise ValueError("Interner Geometriefehler bei der Bogenberechnung.")
 
-        start_angle, extent_angle, arc_len, mid_point = choose_outer_arc(
-            (w.x, w.y), w.radius, p_in, p_out, centroid
+        start_angle, extent_angle, arc_len, mid_point = choose_arc_by_centroid(
+            (w.x, w.y), w.radius, p_in, p_out, centroid, prefer_outer
         )
 
         arcs.append(
@@ -445,8 +459,17 @@ class BeltDesignerApp:
         action_box.grid(row=3, column=0, sticky="ew", pady=(0, 8))
         action_box.columnconfigure((0, 1), weight=1)
 
-        ttk.Button(action_box, text="Riemen berechnen", command=self.calculate).grid(row=0, column=0, padx=2, pady=2, sticky="ew")
-        ttk.Button(action_box, text="Ansicht aktualisieren", command=self.redraw).grid(row=0, column=1, padx=2, pady=2, sticky="ew")
+        self.path_mode_var = tk.StringVar(value="Außenkontur")
+        self._combo_row(
+            action_box,
+            0,
+            "Riemenführung",
+            self.path_mode_var,
+            ["Außenkontur", "Innenkontur"],
+        )
+
+        ttk.Button(action_box, text="Riemen berechnen", command=self.calculate).grid(row=1, column=0, padx=2, pady=2, sticky="ew")
+        ttk.Button(action_box, text="Ansicht aktualisieren", command=self.redraw).grid(row=1, column=1, padx=2, pady=2, sticky="ew")
 
         result_box = ttk.LabelFrame(right, text="Ergebnis", padding=8)
         result_box.grid(row=4, column=0, sticky="nsew")
@@ -729,7 +752,16 @@ class BeltDesignerApp:
                 if w.diameter <= 0:
                     raise ValueError(f"{w.name}: Durchmesser muss > 0 sein.")
 
-            self.solution = compute_belt_solution(self.wheels)
+            prefer_outer = self.path_mode_var.get() != "Innenkontur"
+            mode_name = "Außenkontur" if prefer_outer else "Innenkontur"
+            alt_mode_name = "Innenkontur" if prefer_outer else "Außenkontur"
+
+            try:
+                self.solution = compute_belt_solution(self.wheels, prefer_outer=prefer_outer)
+                fallback_used = False
+            except ValueError:
+                self.solution = compute_belt_solution(self.wheels, prefer_outer=not prefer_outer)
+                fallback_used = True
 
             length_exact = self.solution.total_length
             belt_teeth_exact = length_exact / pitch
@@ -752,6 +784,10 @@ class BeltDesignerApp:
             lines.append("")
 
             lines.append("Riemen")
+            if fallback_used:
+                lines.append(f"  Gewählte Führung                 : {mode_name} (nicht legbar, auf {alt_mode_name} gewechselt)")
+            else:
+                lines.append(f"  Gewählte Führung                 : {mode_name}")
             lines.append(f"  Exakte Riemenlänge                : {length_exact:.4f} mm")
             lines.append(f"  Exakte Zahnzahl                   : {belt_teeth_exact:.4f}")
             lines.append(f"  Gerundete Zahnzahl                : {belt_teeth_rounded:d}")
@@ -835,7 +871,9 @@ class BeltDesignerApp:
             lines.append("  - Der Riemen wird auf die nächstliegende ganze Zahnzahl gerundet.")
             lines.append("  - Stimmen eingegebener Pulley-Durchmesser und ganzzahlige Zahnzahl nicht exakt zusammen,")
             lines.append("    wird der korrigierte Teilkreisdurchmesser zusätzlich angezeigt.")
-            lines.append("  - Die grafische Riemenführung wird automatisch als geschlossene Außenkontur über alle Elemente gelegt.")
+            lines.append("  - Riemenführung kann als Außen- oder Innenkontur gewählt werden.")
+            if fallback_used:
+                lines.append("  - Hinweis: Die gewünschte Führung war geometrisch nicht legbar, daher wurde automatisch die Alternative verwendet.")
 
             self.set_result_text("\n".join(lines))
             self.redraw()
@@ -963,7 +1001,7 @@ class BeltDesignerApp:
         self.canvas.create_oval(x + 12, y + 70, x + 24, y + 82, fill="#ca6702", outline="")
         self.canvas.create_text(x + 32, y + 76, anchor="w", text="Tangenzpunkt Austritt")
         self.canvas.create_oval(x + 12, y + 92, x + 24, y + 104, fill="#444", outline="")
-        self.canvas.create_text(x + 32, y + 98, anchor="w", text="Schwerpunkt für Außenkontur")
+        self.canvas.create_text(x + 32, y + 98, anchor="w", text="Schwerpunkt für Konturauswahl")
         self.canvas.create_text(
             x + 10,
             y + 116,
