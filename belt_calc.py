@@ -208,6 +208,33 @@ def tangent_internal_both(
     return results
 
 
+def tangent_internal_both(
+    c1: Tuple[float, float],
+    r1: float,
+    c2: Tuple[float, float],
+    r2: float,
+) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
+    dx = c2[0] - c1[0]
+    dy = c2[1] - c1[1]
+    d = math.hypot(dx, dy)
+    if d <= 1e-9:
+        return []
+    if d <= (r1 + r2):
+        return []
+
+    base = math.atan2(dy, dx)
+    val = clamp((r1 + r2) / d, -1.0, 1.0)
+    alpha = math.acos(val)
+
+    results = []
+    for side in (-1, 1):
+        a = base + side * alpha
+        p1 = (c1[0] + r1 * math.cos(a), c1[1] + r1 * math.sin(a))
+        p2 = (c2[0] - r2 * math.cos(a), c2[1] - r2 * math.sin(a))
+        results.append((p1, p2))
+    return results
+
+
 def choose_outer_tangent(
     c1: Tuple[float, float],
     r1: float,
@@ -1171,7 +1198,12 @@ class BeltDesignerApp:
         min_x, min_y, max_x, max_y = self.get_scene_bounds()
 
         margin_px = max(50.0, min(cw, ch) * 0.08)
-        avail_w = max(50.0, cw - 2.0 * margin_px)
+
+        legend_x, _legend_y, _legend_w, _legend_h = self.get_legend_box()
+        legend_clearance = 16.0
+        reserved_right = max(0.0, cw - max(0.0, legend_x - legend_clearance))
+
+        avail_w = max(50.0, cw - 2.0 * margin_px - reserved_right)
         avail_h = max(50.0, ch - 2.0 * margin_px)
 
         scene_w = max(1e-6, max_x - min_x)
@@ -1180,10 +1212,18 @@ class BeltDesignerApp:
         scale = min(avail_w / scene_w, avail_h / scene_h)
         self.view_scale = max(0.05, scale)
 
+        viewport_left = margin_px
+        viewport_right = max(viewport_left + 50.0, cw - margin_px - reserved_right)
+        viewport_top = margin_px
+        viewport_bottom = max(viewport_top + 50.0, ch - margin_px)
+
+        viewport_cx = (viewport_left + viewport_right) / 2.0
+        viewport_cy = (viewport_top + viewport_bottom) / 2.0
+
         scene_cx = (min_x + max_x) / 2.0
         scene_cy = (min_y + max_y) / 2.0
-        self.view_offset_x = cw / 2.0 - scene_cx * self.view_scale
-        self.view_offset_y = ch / 2.0 - scene_cy * self.view_scale
+        self.view_offset_x = viewport_cx - scene_cx * self.view_scale
+        self.view_offset_y = viewport_cy - scene_cy * self.view_scale
 
         self.redraw()
 
@@ -1198,6 +1238,17 @@ class BeltDesignerApp:
                 best_diff = diff
                 best_step = float(step)
         return best_step
+
+
+    def get_legend_box(self) -> Tuple[float, float, float, float]:
+        cw, _ = self.get_canvas_size()
+        legend_w = 365.0
+        legend_h = 194.0
+        right_margin = 15.0
+        top_margin = 14.0
+        x = cw - (legend_w + right_margin)
+        y = top_margin
+        return x, y, legend_w, legend_h
 
     # --------------------------------------------------------
     # Listen / Auswahl
@@ -1694,10 +1745,8 @@ class BeltDesignerApp:
         self.canvas.create_text(cx + 8, cy - 8, anchor="nw", text="Schwerpunkt", fill="#444", font=("Segoe UI", 8))
 
     def draw_legend(self) -> None:
-        cw, _ = self.get_canvas_size()
-        x = cw - 380
-        y = 14
-        self.canvas.create_rectangle(x, y, x + 365, y + 194, fill="white", outline="#ccd6dd")
+        x, y, legend_w, legend_h = self.get_legend_box()
+        self.canvas.create_rectangle(x, y, x + legend_w, y + legend_h, fill="white", outline="#ccd6dd")
         self.canvas.create_text(x + 10, y + 10, anchor="nw", text="Legende", font=("Segoe UI", 10, "bold"))
         self.canvas.create_line(x + 12, y + 34, x + 54, y + 34, fill="#0a9396", width=3)
         self.canvas.create_text(x + 62, y + 34, anchor="w", text="berechnete geschlossene RiemenfÃ¼hrung")
