@@ -71,6 +71,29 @@ class BeltSolution:
     centroid: Tuple[float, float]
 
 
+@dataclass
+class ToothProfileMetrics:
+    flank_offset: float
+    flank_angle_deg: float
+    trapezoid_area: float
+    pitch_minus_top: float
+    pitch_minus_root: float
+
+
+@dataclass
+class ElementToothCheck:
+    wheel_name: str
+    kind: str
+    z_exact: float
+    z_rounded: int
+    pitch_effective: float
+    pitch_error_abs: float
+    pitch_error_rel: float
+    wrap_teeth_exact: Optional[float]
+    wrap_teeth_rounded: Optional[int]
+    note: str
+
+
 # ============================================================
 # Geometrie
 # ============================================================
@@ -222,6 +245,88 @@ def sensible_order(wheels: List[Wheel]) -> List[int]:
         indexed.reverse()
 
     return indexed
+
+
+def evaluate_tooth_profile(pitch: float, tooth_height: float, tooth_top: float, tooth_root: float) -> ToothProfileMetrics:
+    flank_offset = max(0.0, (tooth_root - tooth_top) / 2.0)
+    flank_angle_deg = 90.0 if flank_offset <= 1e-12 else math.degrees(math.atan(tooth_height / flank_offset))
+    trapezoid_area = tooth_height * (tooth_top + tooth_root) / 2.0
+    return ToothProfileMetrics(
+        flank_offset=flank_offset,
+        flank_angle_deg=flank_angle_deg,
+        trapezoid_area=trapezoid_area,
+        pitch_minus_top=pitch - tooth_top,
+        pitch_minus_root=pitch - tooth_root,
+    )
+
+
+def validate_tooth_profile(pitch: float, tooth_height: float, tooth_top: float, tooth_root: float) -> List[str]:
+    warnings: List[str] = []
+    if tooth_top >= pitch:
+        raise ValueError(
+            "Zahnkopfbreite muss kleiner als die Teilung sein, sonst überlappen benachbarte Zähne."
+        )
+    if tooth_root > pitch * 1.8:
+        warnings.append(
+            "Zahnfußbreite ist sehr groß relativ zur Teilung. Das kann zu Interferenz an kleinen Pulleys führen."
+        )
+    if tooth_root < tooth_top:
+        warnings.append(
+            "Zahnfußbreite ist kleiner als Zahnkopfbreite. Prüfe, ob dieses Profil zum verwendeten System passt."
+        )
+    if tooth_height > pitch * 1.25:
+        warnings.append(
+            "Zahnhöhe ist groß relativ zur Teilung. Prüfe minimale Pulley- und Rollendurchmesser auf Biegebeanspruchung."
+        )
+    if tooth_top <= 0.2 * pitch:
+        warnings.append(
+            "Sehr schmale Zahnkopfbreite. Das kann den Flankendruck erhöhen und Verschleiß beschleunigen."
+        )
+    return warnings
+
+
+def check_element_tooth_compatibility(
+    wheel: Wheel,
+    pitch: float,
+    wrap_length: Optional[float],
+) -> ElementToothCheck:
+    z_exact = (math.pi * wheel.diameter) / pitch
+    z_rounded = max(1, int(round(z_exact)))
+    pitch_effective = (math.pi * wheel.diameter) / z_rounded
+    pitch_error_abs = pitch_effective - pitch
+    pitch_error_rel = pitch_error_abs / pitch
+
+    wrap_teeth_exact: Optional[float] = None
+    wrap_teeth_rounded: Optional[int] = None
+    if wrap_length is not None:
+        wrap_teeth_exact = wrap_length / pitch
+        wrap_teeth_rounded = max(1, int(round(wrap_teeth_exact)))
+
+    if wheel.kind == "Pulley":
+        if abs(pitch_error_rel) <= 0.005:
+            note = "sehr gut zur Teilung passend"
+        elif abs(pitch_error_rel) <= 0.02:
+            note = "noch zulässig, aber Abweichung beachten"
+        else:
+            note = "kritisch: Teilungsabweichung groß, Pulley-Durchmesser/Zahnzahl prüfen"
+    else:
+        if abs(z_exact - z_rounded) <= 0.15:
+            note = "als potenziell gezahnte Rolle gut passend"
+        else:
+            note = "als glatte Umlenkrolle okay; für Zahneingriff wäre der Durchmesser unpassend"
+
+    return ElementToothCheck(
+        wheel_name=wheel.name,
+        kind=wheel.kind,
+        z_exact=z_exact,
+        z_rounded=z_rounded,
+        pitch_effective=pitch_effective,
+        pitch_error_abs=pitch_error_abs,
+        pitch_error_rel=pitch_error_rel,
+        wrap_teeth_exact=wrap_teeth_exact,
+        wrap_teeth_rounded=wrap_teeth_rounded,
+        note=note,
+    )
 
 
 def compute_belt_solution(wheels: List[Wheel]) -> BeltSolution:
@@ -729,6 +834,9 @@ class BeltDesignerApp:
                 if w.diameter <= 0:
                     raise ValueError(f"{w.name}: Durchmesser muss > 0 sein.")
 
+            profile_warnings = validate_tooth_profile(pitch, tooth_height, tooth_top, tooth_root)
+            profile_metrics = evaluate_tooth_profile(pitch, tooth_height, tooth_top, tooth_root)
+
             self.solution = compute_belt_solution(self.wheels)
 
             length_exact = self.solution.total_length
@@ -738,6 +846,12 @@ class BeltDesignerApp:
             length_delta = length_corrected - length_exact
             equivalent_diameter_exact = length_exact / math.pi
             equivalent_diameter_corrected = length_corrected / math.pi
+
+            wrap_by_idx = {arc.idx: arc.length for arc in self.solution.arcs}
+            element_checks = [
+                check_element_tooth_compatibility(w, pitch, wrap_by_idx.get(idx))
+                for idx, w in enumerate(self.wheels)
+            ]
 
             lines = []
             lines.append("RIEMENTRIEB BERECHNUNG")
@@ -749,6 +863,9 @@ class BeltDesignerApp:
             lines.append(f"  Zahnkopfbreite                    : {tooth_top:.4f} mm")
             lines.append(f"  Zahnfußbreite                     : {tooth_root:.4f} mm")
             lines.append(f"  Riemenbreite                      : {belt_width:.4f} mm")
+            lines.append(f"  Flankenversatz je Seite           : {profile_metrics.flank_offset:.4f} mm")
+            lines.append(f"  Flankenwinkel                     : {profile_metrics.flank_angle_deg:.3f}°")
+            lines.append(f"  Querschnitt Zahn (Trapez)         : {profile_metrics.trapezoid_area:.4f} mm²")
             lines.append("")
 
             lines.append("Riemen")
@@ -768,26 +885,28 @@ class BeltDesignerApp:
             ordered_names = []
             for pos, idx in enumerate(self.solution.order, start=1):
                 w = self.wheels[idx]
+                check = element_checks[idx]
                 ordered_names.append(w.name)
                 if w.kind == "Pulley":
-                    z_exact = w.derived_teeth_exact(pitch)
-                    z_round = w.derived_teeth_rounded(pitch)
                     d_corr = w.corrected_pitch_diameter(pitch)
                     diff = d_corr - w.diameter
                     lines.append(
                         f"  {pos:02d}. {w.name:<20} Typ=Pulley  "
                         f"D_eingegeben={w.diameter:>9.4f} mm  "
-                        f"Z_exakt={z_exact:>8.4f}  "
-                        f"Z_verwendet={z_round:>4d}  "
+                        f"Z_exakt={check.z_exact:>8.4f}  "
+                        f"Z_verwendet={check.z_rounded:>4d}  "
+                        f"p_eff={check.pitch_effective:>7.4f} mm  "
+                        f"Δp={check.pitch_error_abs:+.4f} mm ({check.pitch_error_rel*100:+.3f} %)  "
                         f"D_korrigiert={d_corr:>9.4f} mm  "
-                        f"Abweichung={diff:+.4f} mm  "
-                        f"Pos=({w.x:>8.3f}, {w.y:>8.3f})"
+                        f"Abweichung={diff:+.4f} mm"
                     )
                 else:
                     lines.append(
                         f"  {pos:02d}. {w.name:<20} Typ=Rolle   "
                         f"D={w.diameter:>9.4f} mm  "
-                        f"Pos=({w.x:>8.3f}, {w.y:>8.3f})"
+                        f"Z_virtuell={check.z_exact:>8.4f} -> {check.z_rounded:>4d}  "
+                        f"p_eff={check.pitch_effective:>7.4f} mm  "
+                        f"Hinweis={check.note}"
                     )
             lines.append("")
 
@@ -813,29 +932,47 @@ class BeltDesignerApp:
                 )
             lines.append("")
 
-            lines.append("Bogenanteile am Riemen")
+            lines.append("Bogenanteile am Riemen / Eingriff")
             for arc in self.solution.arcs:
                 w = self.wheels[arc.idx]
                 wrap_deg = abs(math.degrees(arc.extent_angle))
+                check = element_checks[arc.idx]
+                if check.wrap_teeth_exact is None or check.wrap_teeth_rounded is None:
+                    wrap_txt = "-"
+                else:
+                    wrap_txt = f"{check.wrap_teeth_exact:7.3f} -> {check.wrap_teeth_rounded:4d}"
                 lines.append(
-                    f"  {w.name:<20} : Bogenlänge={arc.length:>10.4f} mm   Umschlingung={wrap_deg:>9.4f}°"
+                    f"  {w.name:<20} : Bogenlänge={arc.length:>10.4f} mm   Umschlingung={wrap_deg:>9.4f}°   "
+                    f"Zähne im Eingriff≈{wrap_txt}"
                 )
             lines.append("")
 
-            lines.append("Zahnmaße für schnelle Konstruktion")
-            lines.append(f"  Teilung                           : {pitch:.4f} mm")
-            lines.append(f"  Zahnhöhe                          : {tooth_height:.4f} mm")
-            lines.append(f"  Zahnkopfbreite                    : {tooth_top:.4f} mm")
-            lines.append(f"  Zahnfußbreite                     : {tooth_root:.4f} mm")
+            lines.append("Plausibilität Teilung & Zahngeometrie")
+            lines.append(
+                f"  Kopfspiel je Teilung (p - b_kopf)  : {profile_metrics.pitch_minus_top:+.4f} mm"
+            )
+            lines.append(
+                f"  Fußreserve je Teilung (p - b_fuß)  : {profile_metrics.pitch_minus_root:+.4f} mm"
+            )
+            lines.append("  Elementbewertung:")
+            for check in element_checks:
+                lines.append(
+                    f"    - {check.wheel_name:<20} ({check.kind}) -> {check.note}; "
+                    f"Δp={check.pitch_error_abs:+.4f} mm ({check.pitch_error_rel*100:+.3f} %)"
+                )
             lines.append("")
 
             lines.append("Hinweise")
             lines.append("  - Bei Pulleys ist der eingegebene Durchmesser als Teilkreisdurchmesser zu verstehen.")
             lines.append("  - Die Pulley-Zahnzahl wird aus Teilung und Teilkreisdurchmesser bestimmt.")
             lines.append("  - Der Riemen wird auf die nächstliegende ganze Zahnzahl gerundet.")
-            lines.append("  - Stimmen eingegebener Pulley-Durchmesser und ganzzahlige Zahnzahl nicht exakt zusammen,")
-            lines.append("    wird der korrigierte Teilkreisdurchmesser zusätzlich angezeigt.")
-            lines.append("  - Die grafische Riemenführung wird automatisch als geschlossene Außenkontur über alle Elemente gelegt.")
+            lines.append("  - Für jedes Element wird ein effektiver Umfang pro Zahn p_eff berechnet.")
+            lines.append("  - Für Rollen wird zusätzlich gezeigt, ob ein hypothetischer Zahneingriff zur Teilung passen würde.")
+            if profile_warnings:
+                lines.append("")
+                lines.append("Warnungen zur Zahngeometrie")
+                for wtxt in profile_warnings:
+                    lines.append(f"  - {wtxt}")
 
             self.set_result_text("\n".join(lines))
             self.redraw()
