@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import math
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -725,80 +723,119 @@ class AdvancedGeometryApp:
     # ---------- 2D ----------
     def calc_rectangle(self, v):
         a, b = v["a"], v["b"]
+        area = a * b
+        perimeter = 2 * (a + b)
+        diagonal = math.sqrt(a * a + b * b)
         return {
-            "Fläche A": a * b,
-            "Umfang U": 2 * (a + b),
-            "Diagonale d": math.sqrt(a * a + b * b),
+            "Fläche A": area,
+            "Umfang U": perimeter,
+            "Diagonale d": diagonal,
+            "Seitenverhältnis a:b": a / b,
+            "Seitenverhältnis b:a": b / a,
         }
 
     def calc_square(self, v):
         a = v["a"]
+        diagonal = a * math.sqrt(2)
         return {
             "Fläche A": a ** 2,
             "Umfang U": 4 * a,
-            "Diagonale d": a * math.sqrt(2),
+            "Diagonale d": diagonal,
             "Inkreisradius r_i": a / 2,
             "Umkreisradius r_u": a / math.sqrt(2),
+            "Winkel (alle)": 90.0,
         }
 
     def calc_circle(self, v):
         r = v["r"]
+        diameter = 2 * r
+        area = math.pi * r ** 2
         return {
-            "Fläche A": math.pi * r ** 2,
+            "Fläche A": area,
             "Umfang U": 2 * math.pi * r,
-            "Durchmesser d": 2 * r,
+            "Durchmesser d": diameter,
+            "Kreisfläche je Umfang² (A/U²)": area / ((2 * math.pi * r) ** 2),
         }
 
     def calc_annulus(self, v):
         R, r = v["R"], v["r"]
         if r >= R:
             raise ValueError("Innenradius r muss kleiner als Außenradius R sein.")
+        area = math.pi * (R ** 2 - r ** 2)
+        outer_u = 2 * math.pi * R
+        inner_u = 2 * math.pi * r
         return {
-            "Fläche A": math.pi * (R ** 2 - r ** 2),
-            "Außenumfang U_a": 2 * math.pi * R,
-            "Innenumfang U_i": 2 * math.pi * r,
+            "Fläche A": area,
+            "Außenumfang U_a": outer_u,
+            "Innenumfang U_i": inner_u,
+            "Umfang gesamt U_ges": outer_u + inner_u,
             "Wandstärke t": R - r,
         }
 
     def calc_ellipse(self, v):
         a, b = v["a"], v["b"]
         u = math.pi * (3 * (a + b) - math.sqrt((3 * a + b) * (a + 3 * b)))
+        c = math.sqrt(abs(a * a - b * b))
+        e = c / max(a, b)
         return {
             "Fläche A": math.pi * a * b,
             "Umfang U (Ramanujan)": u,
+            "Lineare Exzentrizität c": c,
+            "Numerische Exzentrizität e": e,
         }
 
     def calc_sector(self, v):
         r, alpha_deg = v["r"], v["alpha_deg"]
         alpha_rad = math.radians(alpha_deg)
+        full_circle_area = math.pi * r * r
+        full_circle_u = 2 * math.pi * r
         return {
+            "Winkel α_deg": alpha_deg,
             "Winkel α_rad": alpha_rad,
             "Bogenlänge s": r * alpha_rad,
             "Fläche A": 0.5 * r * r * alpha_rad,
             "Sehnenlänge c": 2 * r * math.sin(alpha_rad / 2),
+            "Flächenanteil": (0.5 * r * r * alpha_rad) / full_circle_area,
+            "Umfangsanteil (Bogen)": (r * alpha_rad) / full_circle_u,
         }
 
     def calc_segment(self, v):
         r, alpha_deg = v["r"], v["alpha_deg"]
         alpha_rad = math.radians(alpha_deg)
+        chord = 2 * r * math.sin(alpha_rad / 2)
+        seg_h = r * (1 - math.cos(alpha_rad / 2))
         return {
+            "Winkel α_deg": alpha_deg,
             "Winkel α_rad": alpha_rad,
             "Segmentfläche A": 0.5 * r * r * (alpha_rad - math.sin(alpha_rad)),
-            "Sehnenlänge c": 2 * r * math.sin(alpha_rad / 2),
-            "Segmenthöhe h": r * (1 - math.cos(alpha_rad / 2)),
+            "Sehnenlänge c": chord,
+            "Segmenthöhe h": seg_h,
+            "Sektorfläche A_sektor": 0.5 * r * r * alpha_rad,
         }
 
     def calc_triangle_general(self, v):
         a, b, c, h_a = v["a"], v["b"], v["c"], v["h_a"]
         if a + b <= c or a + c <= b or b + c <= a:
             raise ValueError("Ungültiges Dreieck: Dreiecksungleichung verletzt.")
-        s = (a + b + c) / 2
+        perimeter = a + b + c
+        s = perimeter / 2
         area_heron = math.sqrt(s * (s - a) * (s - b) * (s - c))
+        alpha = math.degrees(math.acos((b * b + c * c - a * a) / (2 * b * c)))
+        beta = math.degrees(math.acos((a * a + c * c - b * b) / (2 * a * c)))
+        gamma = 180.0 - alpha - beta
         return {
-            "Umfang U": a + b + c,
+            "Umfang U": perimeter,
             "Halbumfang s": s,
             "Fläche A über h_a": a * h_a / 2,
             "Fläche A nach Heron": area_heron,
+            "Höhe h_a (Heron)": 2 * area_heron / a,
+            "Höhe h_b": 2 * area_heron / b,
+            "Höhe h_c": 2 * area_heron / c,
+            "Winkel α": alpha,
+            "Winkel β": beta,
+            "Winkel γ": gamma,
+            "Inkreisradius r_i": area_heron / s,
+            "Umkreisradius r_u": (a * b * c) / (4 * area_heron),
         }
 
     def calc_triangle_right(self, v):
@@ -806,47 +843,67 @@ class AdvancedGeometryApp:
         c = math.sqrt(a * a + b * b)
         alpha = math.degrees(math.atan2(b, a))
         beta = 90 - alpha
+        area = a * b / 2
         return {
             "Hypotenuse c": c,
-            "Fläche A": a * b / 2,
+            "Fläche A": area,
             "Umfang U": a + b + c,
             "Winkel α": alpha,
             "Winkel β": beta,
+            "Winkel γ": 90.0,
+            "Höhe auf Hypotenuse h_c": (a * b) / c,
+            "Inkreisradius r_i": (a + b - c) / 2,
+            "Umkreisradius r_u": c / 2,
         }
 
     def calc_triangle_equilateral(self, v):
         a = v["a"]
+        area = a * a * math.sqrt(3) / 4
         return {
             "Höhe h": a * math.sqrt(3) / 2,
-            "Fläche A": a * a * math.sqrt(3) / 4,
+            "Fläche A": area,
             "Umfang U": 3 * a,
             "Inkreisradius r_i": a * math.sqrt(3) / 6,
             "Umkreisradius r_u": a * math.sqrt(3) / 3,
+            "Winkel α": 60.0,
+            "Winkel β": 60.0,
+            "Winkel γ": 60.0,
         }
 
     def calc_trapezoid(self, v):
         a, c, h, b, d = v["a"], v["c"], v["h"], v["b"], v["d"]
+        midline = (a + c) / 2
         return {
-            "Fläche A": ((a + c) / 2) * h,
+            "Fläche A": midline * h,
             "Umfang U": a + b + c + d,
-            "Mittellinie m": (a + c) / 2,
+            "Mittellinie m": midline,
+            "Differenz Grundseiten |a-c|": abs(a - c),
         }
 
     def calc_parallelogram(self, v):
         a, b, h, alpha_deg = v["a"], v["b"], v["h"], v["alpha_deg"]
         alpha_rad = math.radians(alpha_deg)
+        beta_deg = 180 - alpha_deg
+        area_by_angle = a * b * math.sin(alpha_rad)
         return {
             "Fläche A über Höhe": a * h,
-            "Fläche A über Winkel": a * b * math.sin(alpha_rad),
+            "Fläche A über Winkel": area_by_angle,
             "Umfang U": 2 * (a + b),
             "Winkel α_rad": alpha_rad,
+            "Winkel α_deg": alpha_deg,
+            "Winkel β_deg": beta_deg,
+            "Höhe auf b": b * math.sin(alpha_rad),
         }
 
     def calc_rhombus(self, v):
         a, e, f = v["a"], v["e"], v["f"]
+        alpha = 2 * math.degrees(math.atan2(f, e))
         return {
             "Fläche A": e * f / 2,
             "Umfang U": 4 * a,
+            "Inkreisradius r_i": (e * f / 2) / (2 * a),
+            "Winkel α (aus Diagonalen)": alpha,
+            "Winkel β (aus Diagonalen)": 180 - alpha,
         }
 
     def calc_kite(self, v):
@@ -854,6 +911,8 @@ class AdvancedGeometryApp:
         return {
             "Fläche A": e * f / 2,
             "Umfang U": 2 * (a + b),
+            "Halbe Diagonalen e/2": e / 2,
+            "Halbe Diagonalen f/2": f / 2,
         }
 
     def calc_regular_polygon(self, v):
@@ -861,15 +920,18 @@ class AdvancedGeometryApp:
         if n < 3:
             raise ValueError("Ein regelmäßiges n-Eck benötigt mindestens 3 Seiten.")
         alpha_deg = (n - 2) * 180 / n
+        exterior_deg = 360 / n
         apothem = a / (2 * math.tan(math.pi / n))
         circumradius = a / (2 * math.sin(math.pi / n))
         area = n * a * a / (4 * math.tan(math.pi / n))
         return {
             "Innenwinkel α": alpha_deg,
+            "Außenwinkel ε": exterior_deg,
             "Umfang U": n * a,
             "Apothem r": apothem,
             "Umkreisradius R": circumradius,
             "Fläche A": area,
+            "Diagonalenanzahl": n * (n - 3) / 2,
         }
 
     # ---------- 3D ----------
@@ -879,6 +941,9 @@ class AdvancedGeometryApp:
             "Volumen V": a ** 3,
             "Oberfläche O": 6 * a ** 2,
             "Raumdiagonale d": a * math.sqrt(3),
+            "Flächendiagonale d_f": a * math.sqrt(2),
+            "Inkreisradius r_i": a / 2,
+            "Umkugelradius r_u": a * math.sqrt(3) / 2,
         }
 
     def calc_cuboid(self, v):
@@ -887,6 +952,9 @@ class AdvancedGeometryApp:
             "Volumen V": a * b * c,
             "Oberfläche O": 2 * (a * b + a * c + b * c),
             "Raumdiagonale d": math.sqrt(a * a + b * b + c * c),
+            "Flächendiagonale ab": math.sqrt(a * a + b * b),
+            "Flächendiagonale ac": math.sqrt(a * a + c * c),
+            "Flächendiagonale bc": math.sqrt(b * b + c * c),
         }
 
     def calc_sphere(self, v):
@@ -894,6 +962,8 @@ class AdvancedGeometryApp:
         return {
             "Volumen V": 4 / 3 * math.pi * r ** 3,
             "Oberfläche O": 4 * math.pi * r ** 2,
+            "Durchmesser d": 2 * r,
+            "Großkreisumfang U": 2 * math.pi * r,
         }
 
     def calc_hemisphere(self, v):
@@ -902,36 +972,45 @@ class AdvancedGeometryApp:
             "Volumen V": 2 / 3 * math.pi * r ** 3,
             "Mantelfläche M": 2 * math.pi * r ** 2,
             "Oberfläche O": 3 * math.pi * r ** 2,
+            "Grundfläche G": math.pi * r ** 2,
+            "Durchmesser d": 2 * r,
         }
 
     def calc_cylinder(self, v):
         r, h = v["r"], v["h"]
+        base_area = math.pi * r ** 2
         return {
-            "Volumen V": math.pi * r ** 2 * h,
+            "Volumen V": base_area * h,
             "Mantelfläche M": 2 * math.pi * r * h,
-            "Oberfläche O": 2 * math.pi * r ** 2 + 2 * math.pi * r * h,
+            "Oberfläche O": 2 * base_area + 2 * math.pi * r * h,
+            "Grundfläche G": base_area,
+            "Durchmesser d": 2 * r,
         }
 
     def calc_hollow_cylinder(self, v):
         R, r, h = v["R"], v["r"], v["h"]
         if r >= R:
             raise ValueError("Innenradius r muss kleiner als Außenradius R sein.")
+        ring_area = math.pi * (R ** 2 - r ** 2)
         return {
-            "Volumen V": math.pi * (R ** 2 - r ** 2) * h,
+            "Volumen V": ring_area * h,
             "Außenmantel M_a": 2 * math.pi * R * h,
             "Innenmantel M_i": 2 * math.pi * r * h,
-            "Gesamtoberfläche O": 2 * math.pi * (R ** 2 - r ** 2) + 2 * math.pi * h * (R + r),
+            "Gesamtoberfläche O": 2 * ring_area + 2 * math.pi * h * (R + r),
             "Wandstärke t": R - r,
+            "Ring-Grundfläche G_ring": ring_area,
         }
 
     def calc_cone(self, v):
         r, h = v["r"], v["h"]
         s = math.sqrt(r * r + h * h)
+        alpha_deg = math.degrees(math.atan2(r, h))
         return {
             "Mantellinie s": s,
             "Volumen V": math.pi * r ** 2 * h / 3,
             "Mantelfläche M": math.pi * r * s,
             "Oberfläche O": math.pi * r ** 2 + math.pi * r * s,
+            "Öffnungs-Halbwinkel α": alpha_deg,
         }
 
     def calc_frustum(self, v):
@@ -939,11 +1018,14 @@ class AdvancedGeometryApp:
         if r >= R:
             raise ValueError("Kleiner Radius r muss kleiner als großer Radius R sein.")
         s = math.sqrt((R - r) ** 2 + h ** 2)
+        base_area_diff = math.pi * (R ** 2 - r ** 2)
         return {
             "Mantellinie s": s,
             "Volumen V": math.pi * h * (R ** 2 + R * r + r ** 2) / 3,
             "Mantelfläche M": math.pi * (R + r) * s,
             "Oberfläche O": math.pi * (R + r) * s + math.pi * R ** 2 + math.pi * r ** 2,
+            "Ringfläche (Grundflächen-Differenz)": base_area_diff,
+            "Wandstärke radial t": R - r,
         }
 
     def calc_prism(self, v):
@@ -952,6 +1034,8 @@ class AdvancedGeometryApp:
             "Volumen V": G * h,
             "Mantelfläche M": U_G * h,
             "Oberfläche O": 2 * G + U_G * h,
+            "Grundfläche G": G,
+            "Grundumfang U_G": U_G,
         }
 
     def calc_pyramid(self, v):
@@ -959,6 +1043,8 @@ class AdvancedGeometryApp:
         return {
             "Volumen V": G * h / 3,
             "Oberfläche O": G + M,
+            "Grundfläche G": G,
+            "Mantelfläche M": M,
         }
 
     def calc_tetrahedron(self, v):
@@ -967,6 +1053,8 @@ class AdvancedGeometryApp:
             "Volumen V": a ** 3 / (6 * math.sqrt(2)),
             "Oberfläche O": math.sqrt(3) * a ** 2,
             "Höhe h": a * math.sqrt(2 / 3),
+            "Inkugelradius r_i": a * math.sqrt(6) / 12,
+            "Umkugelradius r_u": a * math.sqrt(6) / 4,
         }
 
     # ---------- Analytik ----------
@@ -974,9 +1062,11 @@ class AdvancedGeometryApp:
         r, alpha_deg = v["r"], v["alpha_deg"]
         alpha_rad = math.radians(alpha_deg)
         return {
+            "Winkel α_deg": alpha_deg,
             "Winkel α_rad": alpha_rad,
             "Bogenlänge s": r * alpha_rad,
             "Sehne c": 2 * r * math.sin(alpha_rad / 2),
+            "Sektorfläche A": 0.5 * r * r * alpha_rad,
         }
 
     def calc_cartesian_polar(self, v):
@@ -988,12 +1078,18 @@ class AdvancedGeometryApp:
             "Radius r": r,
             "Winkel φ_rad": phi_rad,
             "Winkel φ_deg": phi_deg,
+            "x aus Polar": r * math.cos(phi_rad),
+            "y aus Polar": r * math.sin(phi_rad),
         }
 
     def calc_distance_2d(self, v):
         x1, y1, x2, y2 = v["x1"], v["y1"], v["x2"], v["y2"]
+        dx = x2 - x1
+        dy = y2 - y1
         return {
-            "Abstand d": math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2),
+            "Δx": dx,
+            "Δy": dy,
+            "Abstand d": math.sqrt(dx ** 2 + dy ** 2),
             "Mittelpunkt x_M": (x1 + x2) / 2,
             "Mittelpunkt y_M": (y1 + y2) / 2,
         }
@@ -1009,6 +1105,7 @@ class AdvancedGeometryApp:
             "Steigung m": m,
             "Achsenabschnitt b": b,
             "Winkel zur x-Achse": angle_deg,
+            "Geradengleichung": f"y = {self.fmt(m)}x + {self.fmt(b)}",
         }
 
 
@@ -1025,8 +1122,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-path = Path("/mnt/data/geometrie_wissenschaftsrechner_erweitert.py")
-path.write_text(script, encoding="utf-8")
-print(path)
