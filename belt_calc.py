@@ -208,33 +208,6 @@ def tangent_internal_both(
     return results
 
 
-def tangent_internal_both(
-    c1: Tuple[float, float],
-    r1: float,
-    c2: Tuple[float, float],
-    r2: float,
-) -> List[Tuple[Tuple[float, float], Tuple[float, float]]]:
-    dx = c2[0] - c1[0]
-    dy = c2[1] - c1[1]
-    d = math.hypot(dx, dy)
-    if d <= 1e-9:
-        return []
-    if d <= (r1 + r2):
-        return []
-
-    base = math.atan2(dy, dx)
-    val = clamp((r1 + r2) / d, -1.0, 1.0)
-    alpha = math.acos(val)
-
-    results = []
-    for side in (-1, 1):
-        a = base + side * alpha
-        p1 = (c1[0] + r1 * math.cos(a), c1[1] + r1 * math.sin(a))
-        p2 = (c2[0] - r2 * math.cos(a), c2[1] - r2 * math.sin(a))
-        results.append((p1, p2))
-    return results
-
-
 def choose_outer_tangent(
     c1: Tuple[float, float],
     r1: float,
